@@ -1,0 +1,27 @@
+[project]
+name = "invoice-handler-backend"
+version = "0.1.0"
+description = "FastAPI backend for invoice/receipt processing using Azure Document Intelligence"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Invoice Handler" }]
+dependencies = [
+	"fastapi==0.115.2",
+	"uvicorn[standard]==0.30.6",
+	"pydantic==2.9.2",
+	"pydantic-settings==2.5.2",
+	"httpx==0.27.2",
+	"boto3==1.35.34",
+	"botocore==1.35.34",
+	"python-dateutil==2.9.0.post0",
+	"orjson==3.10.7",
+]
+
+[tool.uv]
+index-strategy = "unsafe-best-match"
+
+[tool.uv.sources]
+# Add custom indexes here if needed
+
+[tool.uv.workspace]
+# Enable workspace mode if you later add more packages

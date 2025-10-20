@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv
+ENV/
+.uv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment variables
+.env
+.env.local
+
+# Test/upload files
+files/input/*
+files/output/*
+!files/input/.gitkeep
+!files/output/.gitkeep
+
+# UV lock
+uv.lock
+
+# OS
+.DS_Store
+Thumbs.db
