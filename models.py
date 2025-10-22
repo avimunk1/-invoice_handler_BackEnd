@@ -12,6 +12,7 @@ class LineItem(BaseModel):
 class InvoiceData(BaseModel):
 	file_name: str
 	source_path: str
+	file_url: Optional[str] = None  # URL to view/download the file
 	language: str  # "en" or "he"
 	document_type: str  # "invoice", "receipt", "other", or "uncertain"
 	supplier_name: Optional[str] = None

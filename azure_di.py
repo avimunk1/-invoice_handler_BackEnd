@@ -22,13 +22,17 @@ class AzureDIClient:
 			await asyncio.sleep(1)
 		raise TimeoutError("Azure DI analyze operation timed out")
 
-	async def _post_analyze(self, model_id: str, content: bytes, content_type: str, max_retries: int = 3) -> Dict[str, Any]:
+	async def _post_analyze(self, model_id: str, content: bytes, content_type: str, locale: Optional[str] = None, max_retries: int = 3) -> Dict[str, Any]:
 		headers = {
 			"Ocp-Apim-Subscription-Key": self.api_key,
 			"Content-Type": content_type,
 			"Accept": "application/json",
 		}
 		url = f"{self.endpoint}/documentintelligence/documentModels/{model_id}:analyze?api-version=2024-11-30"
+		
+		# Add locale parameter if provided
+		if locale:
+			url += f"&locale={locale}"
 		
 		last_error = None
 		for attempt in range(max_retries):
@@ -71,5 +75,5 @@ class AzureDIClient:
 	async def analyze_receipt(self, content: bytes, content_type: str) -> Dict[str, Any]:
 		return await self._post_analyze("prebuilt-receipt", content, content_type)
 
-	async def analyze_invoice(self, content: bytes, content_type: str) -> Dict[str, Any]:
-		return await self._post_analyze("prebuilt-invoice", content, content_type)
+	async def analyze_invoice(self, content: bytes, content_type: str, locale: Optional[str] = None) -> Dict[str, Any]:
+		return await self._post_analyze("prebuilt-invoice", content, content_type, locale=locale)

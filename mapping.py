@@ -21,7 +21,7 @@ def _parse_date(v: Any) -> Optional[str]:
 		return None
 
 
-def map_receipt(di: Dict[str, Any], file_name: str, source_path: str, language: str) -> InvoiceData:
+def map_receipt(di: Dict[str, Any], file_name: str, source_path: str, language: str, file_url: Optional[str] = None) -> InvoiceData:
 	fields = di.get("documents", [{}])[0].get("fields", {}) if di.get("documents") else di.get("fields", {})
 	
 	# Helper to extract currency values (amount and currencyCode)
@@ -59,6 +59,7 @@ def map_receipt(di: Dict[str, Any], file_name: str, source_path: str, language: 
 	return InvoiceData(
 		file_name=file_name,
 		source_path=source_path,
+		file_url=file_url,
 		language=language,
 		document_type="receipt",
 		supplier_name=(fields.get("MerchantName", {}) or {}).get("valueString") if isinstance(fields.get("MerchantName"), dict) else None,
@@ -73,10 +74,14 @@ def map_receipt(di: Dict[str, Any], file_name: str, source_path: str, language: 
 	)
 
 
-def map_invoice(di: Dict[str, Any], file_name: str, source_path: str, language: str) -> InvoiceData:
+def map_invoice(di: Dict[str, Any], file_name: str, source_path: str, language: str, file_url: Optional[str] = None) -> InvoiceData:
 	fields = di.get("documents", [{}])[0].get("fields", {}) if di.get("documents") else di.get("fields", {})
-	# Debug: print all available field names
+	# Debug: print all available field names and their values
 	print(f"[DEBUG] Available fields for {file_name}: {list(fields.keys())}")
+	for field_name, field_data in fields.items():
+		if isinstance(field_data, dict):
+			value = field_data.get('valueString') or field_data.get('valueNumber') or field_data.get('valueDate') or field_data.get('valueCurrency', {}).get('amount')
+			print(f"[DEBUG]   {field_name}: {value}")
 	
 	# Helper to extract currency values (amount and currencyCode)
 	def get_currency_value(field):
@@ -111,6 +116,7 @@ def map_invoice(di: Dict[str, Any], file_name: str, source_path: str, language: 
 	return InvoiceData(
 		file_name=file_name,
 		source_path=source_path,
+		file_url=file_url,
 		language=language,
 		document_type="invoice",
 		supplier_name=(fields.get("VendorName", {}) or {}).get("valueString") if isinstance(fields.get("VendorName"), dict) else (fields.get("CustomerName", {}) or {}).get("valueString") if isinstance(fields.get("CustomerName"), dict) else None,

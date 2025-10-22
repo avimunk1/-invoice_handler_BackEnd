@@ -8,8 +8,13 @@ class Settings(BaseSettings):
 	azure_di_endpoint: str = Field(..., alias="AZURE_DI_ENDPOINT")
 	azure_di_key: str = Field(..., alias="AZURE_DI_KEY")
 
+	# OpenAI
+	openai_api_key: str = Field(..., alias="OPENAI_API_KEY")
+
 	# AWS/S3
 	aws_region: Optional[str] = Field(default=None, alias="AWS_REGION")
+	s3_bucket: Optional[str] = Field(default=None, alias="S3_BUCKET")
+	s3_region: Optional[str] = Field(default=None, alias="S3_REGION")
 
 	# Service behavior
 	concurrency_limit: int = Field(default=4, alias="CONCURRENCY_LIMIT")
