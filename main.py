@@ -28,15 +28,29 @@ async def healthz():
 
 @app.post("/process", response_model=ProcessResponse)
 async def process(req: ProcessRequest):
-	results = await process_path(req.path, req.recursive, req.language_detection)
-	return ProcessResponse(results=results, errors=[])
+	results, total_files, files_handled = await process_path(
+		req.path, req.recursive, req.language_detection, req.starting_point
+	)
+	return ProcessResponse(
+		results=results, 
+		errors=[], 
+		total_files=total_files,
+		files_handled=files_handled
+	)
 
 
 @app.post("/process/llm", response_model=ProcessResponse)
 async def process_with_llm(req: ProcessRequest):
 	"""Process documents using Azure OCR + OpenAI LLM for flexible field extraction."""
-	results = await process_path_with_llm(req.path, req.recursive, req.language_detection)
-	return ProcessResponse(results=results, errors=[])
+	results, total_files, files_handled = await process_path_with_llm(
+		req.path, req.recursive, req.language_detection, req.starting_point
+	)
+	return ProcessResponse(
+		results=results, 
+		errors=[], 
+		total_files=total_files,
+		files_handled=files_handled
+	)
 
 
 @app.post("/upload/presigned-url")

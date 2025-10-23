@@ -98,11 +98,34 @@ async def process_specific_files(file_paths: List[str], language_detection: bool
 	return results
 
 
-async def process_path(path: str, recursive: bool, language_detection: bool) -> List[InvoiceData]:
+async def process_path(path: str, recursive: bool, language_detection: bool, starting_point: int = 0) -> tuple[List[InvoiceData], int, int]:
+	"""
+	Process invoices from a path with bulk processing support.
+	
+	Args:
+		path: Path to process (local or S3)
+		recursive: Whether to process recursively
+		language_detection: Whether to detect language
+		starting_point: Index to start processing from (0-based)
+	
+	Returns:
+		Tuple of (results, total_files, files_handled)
+	"""
+	from config import settings
+	
 	client = AzureDIClient()
 	uris = discover(path, recursive)
+	total_files = len(uris)
+	
+	# Calculate the slice of files to process in this batch
+	end_point = min(starting_point + settings.bulk_size, total_files)
+	uris_to_process = uris[starting_point:end_point]
+	files_handled = len(uris_to_process)
+	
+	print(f"[DEBUG] Processing batch: {starting_point} to {end_point} of {total_files} files")
+	
 	results: List[InvoiceData] = []
-	for uri in uris:
+	for uri in uris_to_process:
 		try:
 			content, content_type, file_name, source_uri = await _read_file_bytes(uri)
 			
@@ -159,30 +182,93 @@ async def process_path(path: str, recursive: bool, language_detection: bool) -> 
 					confidence=0.0,
 				)
 			)
-	return results
+	return results, total_files, files_handled
 
 
-async def process_path_with_llm(path: str, recursive: bool, language_detection: bool) -> List[InvoiceData]:
+async def process_path_with_llm(path: str, recursive: bool, language_detection: bool, starting_point: int = 0) -> tuple[List[InvoiceData], int, int]:
 	"""
-	Process documents using Azure OCR + OpenAI LLM for field extraction.
-	This approach is more flexible for non-standard documents.
+	Process documents using Azure Invoice Analyzer + Azure OCR + OpenAI LLM.
+	
+	This hybrid approach provides:
+	1. Bounding boxes and page count from Azure Invoice Analyzer
+	2. Text extraction from Azure OCR
+	3. Flexible field extraction from OpenAI LLM
+	
+	Best of both worlds: LLM's intelligent extraction + Azure's visual coordinates.
+	
+	Args:
+		path: Path to process (local or S3)
+		recursive: Whether to process recursively
+		language_detection: Whether to detect language
+		starting_point: Index to start processing from (0-based)
+	
+	Returns:
+		Tuple of (results, total_files, files_handled)
 	"""
+	from config import settings
+	
 	azure_client = AzureDIClient()
 	llm_client = OpenAIClient()
 	uris = discover(path, recursive)
+	total_files = len(uris)
+	
+	# Calculate the slice of files to process in this batch
+	end_point = min(starting_point + settings.bulk_size, total_files)
+	uris_to_process = uris[starting_point:end_point]
+	files_handled = len(uris_to_process)
+	
+	print(f"[DEBUG-LLM] Processing batch: {starting_point} to {end_point} of {total_files} files")
+	
 	results: List[InvoiceData] = []
 	
-	for uri in uris:
+	for uri in uris_to_process:
 		try:
 			content, content_type, file_name, source_uri = await _read_file_bytes(uri)
 			
-			# Step 1: Run Azure OCR with Hebrew locale by default
+			# Step 1: Run Azure Invoice Analyzer to get bounding boxes and page count
 			locale = "he-IL"
-			print(f"[DEBUG-LLM] Running OCR for {file_name} (locale: {locale})")
-			parsed = await azure_client.analyze_read(content, content_type)
+			print(f"[DEBUG-LLM] Running Invoice Analyzer for {file_name} to get bounding boxes (locale: {locale})")
+			invoice_parsed = await azure_client.analyze_invoice(content, content_type, locale=locale)
+			
+			# Extract bounding boxes and page count from invoice analyzer
+			from mapping import _extract_bounding_box, _get_page_count, _get_page_dimensions
+			fields = invoice_parsed.get("documents", [{}])[0].get("fields", {}) if invoice_parsed.get("documents") else invoice_parsed.get("fields", {})
+			
+			# Get page dimensions for normalization
+			page_dims = _get_page_dimensions(invoice_parsed)
+			page_count = _get_page_count(invoice_parsed)
+			
+			bounding_boxes = {}
+			field_mapping = {
+				"VendorName": "supplier_name",
+				"CustomerName": "supplier_name",
+				"InvoiceId": "invoice_number",
+				"InvoiceNumber": "invoice_number",
+				"InvoiceDate": "invoice_date",
+				"SubTotal": "subtotal",
+				"TotalTax": "tax_amount",
+				"InvoiceTotal": "total",
+				"MerchantName": "supplier_name",
+				"TransactionDate": "invoice_date",
+				"Subtotal": "subtotal",
+				"Tax": "tax_amount",
+				"Total": "total",
+			}
+			
+			for azure_field_name, our_field_name in field_mapping.items():
+				if azure_field_name in fields:
+					bbox = _extract_bounding_box(fields[azure_field_name], page_dims)
+					if bbox and our_field_name not in bounding_boxes:
+						bounding_boxes[our_field_name] = bbox
+			
+			print(f"[DEBUG-LLM] Extracted {len(bounding_boxes)} bounding boxes and page_count={page_count}")
+			
+			# Step 2: Run Azure OCR to get text for LLM
+			print(f"[DEBUG-LLM] Running OCR for {file_name} to get text")
+			ocr_parsed = await azure_client.analyze_read(content, content_type)
 			
 			# Extract text content
-			ocr_text = parsed.get("content", "")
+			ocr_text = ocr_parsed.get("content", "")
 			print(f"[DEBUG-LLM] Extracted {len(ocr_text)} characters of text")
 			print(f"[DEBUG-LLM] OCR text preview for {file_name}:")
 			print("=" * 80)
@@ -206,11 +292,13 @@ async def process_path_with_llm(path: str, recursive: bool, language_detection: 
 						total=None,
 						line_items=None,
 						confidence=0.0,
+						bounding_boxes=bounding_boxes if bounding_boxes else None,
+						page_count=page_count,
 					)
 				)
 				continue
 			
-			# Step 2: Send text to LLM for structured extraction
+			# Step 3: Send text to LLM for structured extraction
 			print(f"[DEBUG-LLM] Sending to LLM for extraction")
 			llm_result = await llm_client.extract_invoice_data(ocr_text, file_name)
 			
@@ -246,10 +334,12 @@ async def process_path_with_llm(path: str, recursive: bool, language_detection: 
 				tax_amount=llm_result.get("tax_amount"),
 				total=llm_result.get("total"),
 				line_items=line_items,
-				confidence=None  # LLM doesn't provide confidence scores
+				confidence=None,  # LLM doesn't provide confidence scores
+				bounding_boxes=bounding_boxes if bounding_boxes else None,  # Add bounding boxes from Azure
+				page_count=page_count  # Add page count from Azure
 			)
 			
-			print(f"[DEBUG-LLM] Successfully processed {file_name} with LLM: type={invoice_data.document_type}, total={invoice_data.total}")
+			print(f"[DEBUG-LLM] Successfully processed {file_name} with LLM: type={invoice_data.document_type}, total={invoice_data.total}, bboxes={len(bounding_boxes)}")
 			results.append(invoice_data)
 			
 		except Exception as e:
@@ -271,7 +361,9 @@ async def process_path_with_llm(path: str, recursive: bool, language_detection: 
 					total=None,
 					line_items=None,
 					confidence=0.0,
+					bounding_boxes=None,
+					page_count=None,
 				)
 			)
 	
-	return results
+	return results, total_files, files_handled

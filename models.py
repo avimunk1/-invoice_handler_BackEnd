@@ -1,5 +1,10 @@
-from typing import List, Optional
+from typing import List, Optional, Dict
 from pydantic import BaseModel, Field
+
+
+class BoundingBox(BaseModel):
+	polygon: List[List[float]]  # [[x1,y1], [x2,y2], [x3,y3], [x4,y4]] normalized coordinates (0-1)
+	page_number: int
 
 
 class LineItem(BaseModel):
@@ -24,14 +29,19 @@ class InvoiceData(BaseModel):
 	total: Optional[float] = None
 	line_items: Optional[List[LineItem]] = None
 	confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+	bounding_boxes: Optional[Dict[str, BoundingBox]] = None  # Field name -> bounding box
+	page_count: Optional[int] = None  # Total number of pages in document
 
 
 class ProcessRequest(BaseModel):
 	path: str
 	recursive: bool = False
 	language_detection: bool = True
+	starting_point: int = 0  # Index to start processing from (0-based)
 
 
 class ProcessResponse(BaseModel):
 	results: List[InvoiceData]
 	errors: List[str] = []
+	total_files: int = 0  # Total number of files discovered
+	files_handled: int = 0  # Number of files processed in this batch

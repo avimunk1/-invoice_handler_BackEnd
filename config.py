@@ -20,6 +20,7 @@ class Settings(BaseSettings):
 	concurrency_limit: int = Field(default=4, alias="CONCURRENCY_LIMIT")
 	timeout_seconds: int = Field(default=90, alias="TIMEOUT_SECONDS")
 	classification_threshold: float = Field(default=0.5, alias="CLASSIFICATION_THRESHOLD")
+	bulk_size: int = Field(default=5, alias="BULK_SIZE")  # Number of files to process per batch
 
 	class Config:
 		env_file = ".env"

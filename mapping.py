@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Optional
-from models import InvoiceData, LineItem
+from models import InvoiceData, LineItem, BoundingBox
 from dateutil import parser as dateparser
 
 
@@ -19,6 +19,86 @@ def _parse_date(v: Any) -> Optional[str]:
 		return dateparser.parse(str(v)).date().isoformat()
 	except Exception:
 		return None
+
+
+def _extract_bounding_box(field: Dict[str, Any], page_dims: Dict[int, tuple]) -> Optional[BoundingBox]:
+	"""
+	Extract and normalize bounding box from Azure DI field.
+	
+	Args:
+		field: Azure DI field containing boundingRegions
+		page_dims: Dictionary mapping page_number -> (width, height) in Azure's units
+	
+	Returns:
+		BoundingBox with normalized coordinates (0-1 range)
+	"""
+	try:
+		if not isinstance(field, dict):
+			return None
+		bounding_regions = field.get("boundingRegions", [])
+		if not bounding_regions or len(bounding_regions) == 0:
+			return None
+		# Take the first bounding region
+		region = bounding_regions[0]
+		polygon = region.get("polygon", [])
+		page_number = region.get("pageNumber", 1)
+		
+		if not polygon or len(polygon) < 8:  # Need at least 4 points (8 values)
+			return None
+		
+		# Get page dimensions for normalization
+		if page_number not in page_dims:
+			print(f"[WARN] No page dimensions found for page {page_number}")
+			return None
+		
+		page_width, page_height = page_dims[page_number]
+		
+		# Convert flat list [x1, y1, x2, y2, x3, y3, x4, y4] to [[x1,y1], [x2,y2], ...]
+		# and normalize to 0-1 range
+		polygon_points = [
+			[polygon[i] / page_width, polygon[i+1] / page_height] 
+			for i in range(0, len(polygon), 2)
+		]
+		
+		print(f"[DEBUG] Normalized bbox for page {page_number}: {polygon[:2]} -> {polygon_points[0]}")
+		
+		return BoundingBox(polygon=polygon_points, page_number=page_number)
+	except Exception as e:
+		print(f"[DEBUG] Failed to extract bounding box: {e}")
+		import traceback
+		traceback.print_exc()
+		return None
+
+
+def _get_page_dimensions(di: Dict[str, Any]) -> Dict[int, tuple]:
+	"""
+	Extract page dimensions from Azure DI response.
+	
+	Returns:
+		Dictionary mapping page_number -> (width, height) in Azure's coordinate units
+	"""
+	try:
+		pages = di.get("pages", [])
+		page_dims = {}
+		for page in pages:
+			page_number = page.get("pageNumber", 1)
+			width = page.get("width", 1)
+			height = page.get("height", 1)
+			page_dims[page_number] = (width, height)
+			print(f"[DEBUG] Page {page_number} dimensions: {width} x {height}")
+		return page_dims if page_dims else {1: (1, 1)}
+	except Exception as e:
+		print(f"[WARN] Failed to extract page dimensions: {e}")
+		return {1: (1, 1)}
+
+
+def _get_page_count(di: Dict[str, Any]) -> int:
+	"""Extract total page count from Azure DI response."""
+	try:
+		pages = di.get("pages", [])
+		return len(pages) if pages else 1
+	except Exception:
+		return 1
 
 
 def map_receipt(di: Dict[str, Any], file_name: str, source_path: str, language: str, file_url: Optional[str] = None) -> InvoiceData:
@@ -56,6 +136,26 @@ def map_receipt(di: Dict[str, Any], file_name: str, source_path: str, language: 
 	if not currency_code:
 		_, currency_code = get_currency_value(fields.get("Subtotal", {}))
 
+	# Extract page dimensions and bounding boxes
+	page_dims = _get_page_dimensions(di)
+	page_count = _get_page_count(di)
+	
+	bounding_boxes = {}
+	field_mapping = {
+		"MerchantName": "supplier_name",
+		"TransactionDate": "invoice_date",
+		"Subtotal": "subtotal",
+		"TotalTax": "tax_amount",
+		"Tax": "tax_amount",
+		"Total": "total",
+	}
+	
+	for azure_field_name, our_field_name in field_mapping.items():
+		if azure_field_name in fields:
+			bbox = _extract_bounding_box(fields[azure_field_name], page_dims)
+			if bbox:
+				bounding_boxes[our_field_name] = bbox
+
 	return InvoiceData(
 		file_name=file_name,
 		source_path=source_path,
@@ -71,6 +171,8 @@ def map_receipt(di: Dict[str, Any], file_name: str, source_path: str, language: 
 		total=total_val,
 		line_items=items or None,
 		confidence=_safe_float(di.get("confidence")) or None,
+		bounding_boxes=bounding_boxes if bounding_boxes else None,
+		page_count=page_count,
 	)
 
 
@@ -113,6 +215,28 @@ def map_invoice(di: Dict[str, Any], file_name: str, source_path: str, language: 
 	if not currency_code:
 		_, currency_code = get_currency_value(fields.get("SubTotal", {}))
 
+	# Extract page dimensions and bounding boxes
+	page_dims = _get_page_dimensions(di)
+	page_count = _get_page_count(di)
+	
+	bounding_boxes = {}
+	field_mapping = {
+		"VendorName": "supplier_name",
+		"CustomerName": "supplier_name",
+		"InvoiceId": "invoice_number",
+		"InvoiceNumber": "invoice_number",
+		"InvoiceDate": "invoice_date",
+		"SubTotal": "subtotal",
+		"TotalTax": "tax_amount",
+		"InvoiceTotal": "total",
+	}
+	
+	for azure_field_name, our_field_name in field_mapping.items():
+		if azure_field_name in fields:
+			bbox = _extract_bounding_box(fields[azure_field_name], page_dims)
+			if bbox and our_field_name not in bounding_boxes:  # Don't overwrite if already set
+				bounding_boxes[our_field_name] = bbox
+
 	return InvoiceData(
 		file_name=file_name,
 		source_path=source_path,
@@ -128,6 +252,8 @@ def map_invoice(di: Dict[str, Any], file_name: str, source_path: str, language: 
 		total=total_val,
 		line_items=items or None,
 		confidence=_safe_float(di.get("confidence")) or None,
+		bounding_boxes=bounding_boxes if bounding_boxes else None,
+		page_count=page_count,
 	)
 
 
