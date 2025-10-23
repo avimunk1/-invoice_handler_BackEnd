@@ -31,6 +31,7 @@ class InvoiceData(BaseModel):
 	confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
 	bounding_boxes: Optional[Dict[str, BoundingBox]] = None  # Field name -> bounding box
 	page_count: Optional[int] = None  # Total number of pages in document
+	field_confidence: Optional[Dict[str, float]] = None  # Field name -> confidence score (0-1)
 
 
 class ProcessRequest(BaseModel):

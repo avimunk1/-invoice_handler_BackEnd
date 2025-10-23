@@ -70,6 +70,16 @@ def _extract_bounding_box(field: Dict[str, Any], page_dims: Dict[int, tuple]) ->
 		return None
 
 
+def _extract_field_confidence(field: Dict[str, Any]) -> Optional[float]:
+	"""Extract confidence score from Azure DI field."""
+	try:
+		if not isinstance(field, dict):
+			return None
+		return field.get("confidence")
+	except Exception:
+		return None
+
+
 def _get_page_dimensions(di: Dict[str, Any]) -> Dict[int, tuple]:
 	"""
 	Extract page dimensions from Azure DI response.
@@ -136,11 +146,12 @@ def map_receipt(di: Dict[str, Any], file_name: str, source_path: str, language: 
 	if not currency_code:
 		_, currency_code = get_currency_value(fields.get("Subtotal", {}))
 
-	# Extract page dimensions and bounding boxes
+	# Extract page dimensions, bounding boxes, and field confidence
 	page_dims = _get_page_dimensions(di)
 	page_count = _get_page_count(di)
 	
 	bounding_boxes = {}
+	field_confidences = {}
 	field_mapping = {
 		"MerchantName": "supplier_name",
 		"TransactionDate": "invoice_date",
@@ -152,9 +163,16 @@ def map_receipt(di: Dict[str, Any], file_name: str, source_path: str, language: 
 	
 	for azure_field_name, our_field_name in field_mapping.items():
 		if azure_field_name in fields:
+			# Extract bounding box
 			bbox = _extract_bounding_box(fields[azure_field_name], page_dims)
 			if bbox:
 				bounding_boxes[our_field_name] = bbox
+			
+			# Extract confidence (don't overwrite if already set from another field)
+			if our_field_name not in field_confidences:
+				conf = _extract_field_confidence(fields[azure_field_name])
+				if conf is not None:
+					field_confidences[our_field_name] = conf
 
 	return InvoiceData(
 		file_name=file_name,
@@ -173,17 +191,19 @@ def map_receipt(di: Dict[str, Any], file_name: str, source_path: str, language: 
 		confidence=_safe_float(di.get("confidence")) or None,
 		bounding_boxes=bounding_boxes if bounding_boxes else None,
 		page_count=page_count,
+		field_confidence=field_confidences if field_confidences else None,
 	)
 
 
 def map_invoice(di: Dict[str, Any], file_name: str, source_path: str, language: str, file_url: Optional[str] = None) -> InvoiceData:
 	fields = di.get("documents", [{}])[0].get("fields", {}) if di.get("documents") else di.get("fields", {})
-	# Debug: print all available field names and their values
+	# Debug: print all available field names and their values with confidence
 	print(f"[DEBUG] Available fields for {file_name}: {list(fields.keys())}")
 	for field_name, field_data in fields.items():
 		if isinstance(field_data, dict):
 			value = field_data.get('valueString') or field_data.get('valueNumber') or field_data.get('valueDate') or field_data.get('valueCurrency', {}).get('amount')
-			print(f"[DEBUG]   {field_name}: {value}")
+			confidence = field_data.get('confidence')
+			print(f"[DEBUG]   {field_name}: {value} (confidence: {confidence})")
 	
 	# Helper to extract currency values (amount and currencyCode)
 	def get_currency_value(field):
@@ -215,11 +235,12 @@ def map_invoice(di: Dict[str, Any], file_name: str, source_path: str, language: 
 	if not currency_code:
 		_, currency_code = get_currency_value(fields.get("SubTotal", {}))
 
-	# Extract page dimensions and bounding boxes
+	# Extract page dimensions, bounding boxes, and field confidence
 	page_dims = _get_page_dimensions(di)
 	page_count = _get_page_count(di)
 	
 	bounding_boxes = {}
+	field_confidences = {}
 	field_mapping = {
 		"VendorName": "supplier_name",
 		"CustomerName": "supplier_name",
@@ -233,9 +254,17 @@ def map_invoice(di: Dict[str, Any], file_name: str, source_path: str, language: 
 	
 	for azure_field_name, our_field_name in field_mapping.items():
 		if azure_field_name in fields:
-			bbox = _extract_bounding_box(fields[azure_field_name], page_dims)
-			if bbox and our_field_name not in bounding_boxes:  # Don't overwrite if already set
-				bounding_boxes[our_field_name] = bbox
+			# Extract bounding box (don't overwrite if already set)
+			if our_field_name not in bounding_boxes:
+				bbox = _extract_bounding_box(fields[azure_field_name], page_dims)
+				if bbox:
+					bounding_boxes[our_field_name] = bbox
+			
+			# Extract confidence (don't overwrite if already set)
+			if our_field_name not in field_confidences:
+				conf = _extract_field_confidence(fields[azure_field_name])
+				if conf is not None:
+					field_confidences[our_field_name] = conf
 
 	return InvoiceData(
 		file_name=file_name,
@@ -254,6 +283,7 @@ def map_invoice(di: Dict[str, Any], file_name: str, source_path: str, language: 
 		confidence=_safe_float(di.get("confidence")) or None,
 		bounding_boxes=bounding_boxes if bounding_boxes else None,
 		page_count=page_count,
+		field_confidence=field_confidences if field_confidences else None,
 	)
 
 

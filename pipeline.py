@@ -230,15 +230,24 @@ async def process_path_with_llm(path: str, recursive: bool, language_detection: 
 			print(f"[DEBUG-LLM] Running Invoice Analyzer for {file_name} to get bounding boxes (locale: {locale})")
 			invoice_parsed = await azure_client.analyze_invoice(content, content_type, locale=locale)
 			
-			# Extract bounding boxes and page count from invoice analyzer
-			from mapping import _extract_bounding_box, _get_page_count, _get_page_dimensions
+			# Extract bounding boxes, confidence, and page count from invoice analyzer
+			from mapping import _extract_bounding_box, _get_page_count, _get_page_dimensions, _extract_field_confidence
 			fields = invoice_parsed.get("documents", [{}])[0].get("fields", {}) if invoice_parsed.get("documents") else invoice_parsed.get("fields", {})
+			
+			# Debug: log field confidence scores
+			print(f"[DEBUG-LLM] Field confidence scores for {file_name}:")
+			for field_name, field_data in fields.items():
+				if isinstance(field_data, dict):
+					confidence = field_data.get('confidence')
+					if confidence is not None:
+						print(f"[DEBUG-LLM]   {field_name}: {confidence:.3f}")
 			
 			# Get page dimensions for normalization
 			page_dims = _get_page_dimensions(invoice_parsed)
 			page_count = _get_page_count(invoice_parsed)
 			
 			bounding_boxes = {}
+			field_confidences = {}
 			field_mapping = {
 				"VendorName": "supplier_name",
 				"CustomerName": "supplier_name",
@@ -257,11 +266,19 @@ async def process_path_with_llm(path: str, recursive: bool, language_detection: 
 			
 			for azure_field_name, our_field_name in field_mapping.items():
 				if azure_field_name in fields:
-					bbox = _extract_bounding_box(fields[azure_field_name], page_dims)
-					if bbox and our_field_name not in bounding_boxes:
-						bounding_boxes[our_field_name] = bbox
+					# Extract bounding box
+					if our_field_name not in bounding_boxes:
+						bbox = _extract_bounding_box(fields[azure_field_name], page_dims)
+						if bbox:
+							bounding_boxes[our_field_name] = bbox
+					
+					# Extract confidence
+					if our_field_name not in field_confidences:
+						conf = _extract_field_confidence(fields[azure_field_name])
+						if conf is not None:
+							field_confidences[our_field_name] = conf
 			
-			print(f"[DEBUG-LLM] Extracted {len(bounding_boxes)} bounding boxes and page_count={page_count}")
+			print(f"[DEBUG-LLM] Extracted {len(bounding_boxes)} bounding boxes, {len(field_confidences)} confidences, page_count={page_count}")
 			
 			# Step 2: Run Azure OCR to get text for LLM
 			print(f"[DEBUG-LLM] Running OCR for {file_name} to get text")
@@ -336,7 +353,8 @@ async def process_path_with_llm(path: str, recursive: bool, language_detection: 
 				line_items=line_items,
 				confidence=None,  # LLM doesn't provide confidence scores
 				bounding_boxes=bounding_boxes if bounding_boxes else None,  # Add bounding boxes from Azure
-				page_count=page_count  # Add page count from Azure
+				page_count=page_count,  # Add page count from Azure
+				field_confidence=field_confidences if field_confidences else None,  # Add field confidence from Azure
 			)
 			
 			print(f"[DEBUG-LLM] Successfully processed {file_name} with LLM: type={invoice_data.document_type}, total={invoice_data.total}, bboxes={len(bounding_boxes)}")
