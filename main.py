@@ -35,7 +35,8 @@ async def process(req: ProcessRequest):
 		results=results, 
 		errors=[], 
 		total_files=total_files,
-		files_handled=files_handled
+		files_handled=files_handled,
+		vat_rate=settings.vat_rate
 	)
 
 
@@ -49,7 +50,8 @@ async def process_with_llm(req: ProcessRequest):
 		results=results, 
 		errors=[], 
 		total_files=total_files,
-		files_handled=files_handled
+		files_handled=files_handled,
+		vat_rate=settings.vat_rate
 	)
 
 

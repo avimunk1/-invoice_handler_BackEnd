@@ -4,13 +4,24 @@ from models import InvoiceData, LineItem
 from azure_di import AzureDIClient
 from discovery import discover
 from mapping import map_invoice, validate_invoice_data
-from classifier import detect_language
 from llm_processor import OpenAIClient
 import mimetypes
 import boto3
 import asyncio
 from datetime import datetime
 from io import BytesIO
+import re
+
+
+# Hebrew character detection for language identification
+HEBREW_CHARS = re.compile(r"[\u0590-\u05FF]")
+
+
+def detect_language(text: str) -> str:
+	"""Detect language based on character set (Hebrew vs English)."""
+	if HEBREW_CHARS.search(text or ""):
+		return "he"
+	return "en"
 
 
 def _convert_heic_to_jpeg(heic_content: bytes) -> bytes:

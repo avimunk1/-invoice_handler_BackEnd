@@ -22,6 +22,9 @@ class Settings(BaseSettings):
 	classification_threshold: float = Field(default=0.5, alias="CLASSIFICATION_THRESHOLD")
 	bulk_size: int = Field(default=5, alias="BULK_SIZE")  # Number of files to process per batch
 
+	# Finance
+	vat_rate: float = Field(default=0.18, alias="VAT_RATE")  # 18% default
+
 	class Config:
 		env_file = ".env"
 		env_file_encoding = "utf-8"

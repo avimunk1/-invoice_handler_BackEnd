@@ -6,7 +6,7 @@ set -e
 cd "$(dirname "$0")"
 
 echo "🛑 Stopping PostgreSQL database..."
-docker-compose down
+docker compose down
 
 echo "✅ Database stopped"
 

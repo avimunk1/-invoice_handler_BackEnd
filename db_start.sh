@@ -13,13 +13,9 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
-# Start database
-docker-compose up -d
-
-# Wait for database to be healthy
-echo "⏳ Waiting for database to be ready..."
-timeout 30 bash -c 'until docker-compose exec -T postgres pg_isready -U dev -d invoice_handler_dev > /dev/null 2>&1; do sleep 1; done' || {
-    echo "❌ Database failed to start within 30 seconds"
+# Start database and wait for health (Compose v2)
+docker compose up -d --wait --wait-timeout 30 || {
+    echo "❌ Database failed to become healthy within 30 seconds"
     exit 1
 }
 
@@ -35,6 +31,6 @@ echo ""
 echo "Connection string:"
 echo "   postgresql://dev:dev123@localhost:5432/invoice_handler_dev"
 echo ""
-echo "To stop: cd backend && docker-compose down"
-echo "To reset: cd backend && docker-compose down -v"
+echo "To stop: cd backend && docker compose down"
+echo "To reset: cd backend && docker compose down -v"
 
