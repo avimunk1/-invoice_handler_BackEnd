@@ -1,10 +1,10 @@
 from typing import List
 from pathlib import Path
-from models import InvoiceData, LineItem
-from azure_di import AzureDIClient
-from discovery import discover
-from mapping import map_invoice, validate_invoice_data
-from llm_processor import OpenAIClient
+from .models import InvoiceData, LineItem
+from .azure_di import AzureDIClient
+from .discovery import discover
+from .mapping import map_invoice, validate_invoice_data
+from .llm_processor import OpenAIClient
 import mimetypes
 import boto3
 import asyncio
@@ -169,7 +169,7 @@ async def process_path(path: str, recursive: bool, language_detection: bool, sta
 	Returns:
 		Tuple of (results, total_files, files_handled)
 	"""
-	from config import settings
+	from .config import settings
 	
 	client = AzureDIClient()
 	uris = discover(path, recursive)
@@ -263,7 +263,7 @@ async def process_path_with_llm(path: str, recursive: bool, language_detection: 
 	Returns:
 		Tuple of (results, total_files, files_handled)
 	"""
-	from config import settings
+	from .config import settings
 	
 	azure_client = AzureDIClient()
 	llm_client = OpenAIClient()
@@ -289,7 +289,7 @@ async def process_path_with_llm(path: str, recursive: bool, language_detection: 
 			invoice_parsed = await azure_client.analyze_invoice(content, content_type, locale=locale)
 			
 			# Extract bounding boxes, confidence, and page count from invoice analyzer
-			from mapping import _extract_bounding_box, _get_page_count, _get_page_dimensions, _extract_field_confidence
+			from .mapping import _extract_bounding_box, _get_page_count, _get_page_dimensions, _extract_field_confidence
 			fields = invoice_parsed.get("documents", [{}])[0].get("fields", {}) if invoice_parsed.get("documents") else invoice_parsed.get("fields", {})
 			
 			# Debug: log field confidence scores
@@ -443,3 +443,5 @@ async def process_path_with_llm(path: str, recursive: bool, language_detection: 
 			)
 	
 	return results, total_files, files_handled
+
+

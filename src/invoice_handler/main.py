@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse, FileResponse
-from models import ProcessRequest, ProcessResponse
-from pipeline import process_path, process_path_with_llm
-from config import settings
+from .models import ProcessRequest, ProcessResponse
+from .pipeline import process_path, process_path_with_llm
+from .config import settings
 import boto3
 from typing import Dict, Any
 from pathlib import Path
@@ -116,7 +116,7 @@ async def view_file(path: str):
 			heic_content = obj["Body"].read()
 			
 			# Convert to JPEG
-			from pipeline import _convert_heic_to_jpeg
+			from .pipeline import _convert_heic_to_jpeg
 			from io import BytesIO
 			jpeg_content = _convert_heic_to_jpeg(heic_content)
 			
@@ -150,7 +150,7 @@ async def view_file(path: str):
 		if file_path.suffix.lower() in ['.heic', '.heif']:
 			# Read and convert to JPEG
 			heic_content = file_path.read_bytes()
-			from pipeline import _convert_heic_to_jpeg
+			from .pipeline import _convert_heic_to_jpeg
 			jpeg_content = _convert_heic_to_jpeg(heic_content)
 			
 			# Return JPEG directly
@@ -177,3 +177,5 @@ async def view_file(path: str):
 	
 	else:
 		return {"error": "Invalid path format"}
+
+

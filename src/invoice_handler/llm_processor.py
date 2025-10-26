@@ -1,7 +1,7 @@
 import json
 from typing import Dict, Any, Optional
 from openai import AsyncOpenAI
-from config import settings
+from .config import settings
 
 
 class OpenAIClient:
@@ -113,4 +113,5 @@ Important guidelines:
    - Text: "€1,500.00" → total: 1500.0
 
 Return ONLY the JSON object, no additional text."""
+
 

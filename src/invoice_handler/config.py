@@ -32,3 +32,5 @@ class Settings(BaseSettings):
 
 
 settings = Settings()  # load at import; simple for now
+
+

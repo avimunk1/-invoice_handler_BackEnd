@@ -1,7 +1,7 @@
 import httpx
 import asyncio
 from typing import Optional, Dict, Any
-from config import settings
+from .config import settings
 
 
 class AzureDIClient:
@@ -77,3 +77,5 @@ class AzureDIClient:
 
 	async def analyze_invoice(self, content: bytes, content_type: str, locale: Optional[str] = None) -> Dict[str, Any]:
 		return await self._post_analyze("prebuilt-invoice", content, content_type, locale=locale)
+
+

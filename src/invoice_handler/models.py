@@ -47,3 +47,5 @@ class ProcessResponse(BaseModel):
 	total_files: int = 0  # Total number of files discovered
 	files_handled: int = 0  # Number of files processed in this batch
 	vat_rate: float | None = None
+
+

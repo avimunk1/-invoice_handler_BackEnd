@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Optional
-from models import InvoiceData, LineItem, BoundingBox
+from .models import InvoiceData, LineItem, BoundingBox
 from dateutil import parser as dateparser
 
 
@@ -295,3 +295,5 @@ def validate_invoice_data(data: InvoiceData) -> InvoiceData:
 			return data
 		# If mismatch is large, prefer total and keep others as-is; could flag in future
 	return data
+
+
