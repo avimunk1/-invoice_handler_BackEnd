@@ -7,7 +7,7 @@ try:
 except Exception:  # pragma: no cover
 	boto3 = None
 
-SUPPORTED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".txt"}
+SUPPORTED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".txt", ".heic", ".heif"}
 
 
 def is_supported(path: str) -> bool:

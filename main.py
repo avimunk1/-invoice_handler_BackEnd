@@ -85,7 +85,7 @@ async def get_presigned_url(filename: str) -> Dict[str, Any]:
 
 @app.get("/file/view", response_model=None)
 async def view_file(path: str):
-	"""Get a viewable URL for a file (S3 presigned URL or local file)"""
+	"""Get a viewable URL for a file (S3 presigned URL or local file). Auto-converts HEIC to JPEG."""
 	decoded_path = unquote(path)
 	
 	if decoded_path.startswith("s3://"):
@@ -107,14 +107,34 @@ async def view_file(path: str):
 			region_name=settings.s3_region or settings.aws_region or 'us-east-1'
 		)
 		
-		# Generate presigned URL for viewing (1 hour expiry)
-		url = s3_client.generate_presigned_url(
-			'get_object',
-			Params={'Bucket': bucket, 'Key': key},
-			ExpiresIn=3600
-		)
-		
-		return {"url": url}
+		# Check if HEIC/HEIF - need to convert before serving
+		if key.lower().endswith(('.heic', '.heif')):
+			# Download, convert, and serve as JPEG
+			obj = s3_client.get_object(Bucket=bucket, Key=key)
+			heic_content = obj["Body"].read()
+			
+			# Convert to JPEG
+			from pipeline import _convert_heic_to_jpeg
+			from io import BytesIO
+			jpeg_content = _convert_heic_to_jpeg(heic_content)
+			
+			# Return JPEG directly
+			from fastapi.responses import Response
+			return Response(
+				content=jpeg_content,
+				media_type="image/jpeg",
+				headers={
+					"Content-Disposition": f'inline; filename="{Path(key).stem}.jpg"'
+				}
+			)
+		else:
+			# Generate presigned URL for viewing (1 hour expiry)
+			url = s3_client.generate_presigned_url(
+				'get_object',
+				Params={'Bucket': bucket, 'Key': key},
+				ExpiresIn=3600
+			)
+			return {"url": url}
 	
 	elif decoded_path.startswith("file://"):
 		# Serve local file directly
@@ -124,7 +144,24 @@ async def view_file(path: str):
 		if not file_path.exists():
 			return {"error": "File not found"}
 		
-		# Determine correct media type
+		# Check if HEIC/HEIF - need to convert before serving
+		if file_path.suffix.lower() in ['.heic', '.heif']:
+			# Read and convert to JPEG
+			heic_content = file_path.read_bytes()
+			from pipeline import _convert_heic_to_jpeg
+			jpeg_content = _convert_heic_to_jpeg(heic_content)
+			
+			# Return JPEG directly
+			from fastapi.responses import Response
+			return Response(
+				content=jpeg_content,
+				media_type="image/jpeg",
+				headers={
+					"Content-Disposition": f'inline; filename="{file_path.stem}.jpg"'
+				}
+			)
+		
+		# For other file types, serve as-is
 		import mimetypes
 		media_type, _ = mimetypes.guess_type(str(file_path))
 		if not media_type:

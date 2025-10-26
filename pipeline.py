@@ -10,10 +10,39 @@ import mimetypes
 import boto3
 import asyncio
 from datetime import datetime
+from io import BytesIO
+
+
+def _convert_heic_to_jpeg(heic_content: bytes) -> bytes:
+	"""Convert HEIC/HEIF image to JPEG format."""
+	try:
+		from pillow_heif import register_heif_opener
+		from PIL import Image
+		
+		# Register HEIF opener with Pillow
+		register_heif_opener()
+		
+		# Open HEIC image from bytes
+		heic_image = Image.open(BytesIO(heic_content))
+		
+		# Convert to RGB if necessary (HEIC can have different color modes)
+		if heic_image.mode not in ('RGB', 'L'):
+			heic_image = heic_image.convert('RGB')
+		
+		# Save as JPEG to bytes
+		jpeg_buffer = BytesIO()
+		heic_image.save(jpeg_buffer, format='JPEG', quality=95)
+		jpeg_buffer.seek(0)
+		
+		print("[INFO] Successfully converted HEIC to JPEG")
+		return jpeg_buffer.read()
+	except Exception as e:
+		print(f"[ERROR] Failed to convert HEIC to JPEG: {type(e).__name__}: {str(e)}")
+		raise
 
 
 async def _read_file_bytes(uri: str):
-	"""Read file content from local path or S3."""
+	"""Read file content from local path or S3. Converts HEIC/HEIF to JPEG automatically."""
 	if uri.startswith("s3://"):
 		import re
 		m = re.match(r"s3://([^/]+)/(.+)", uri)
@@ -25,6 +54,15 @@ async def _read_file_bytes(uri: str):
 		content = obj["Body"].read()
 		file_name = Path(key).name
 		ct = obj.get("ContentType") or mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+		
+		# Convert HEIC/HEIF to JPEG
+		if file_name.lower().endswith(('.heic', '.heif')):
+			print(f"[INFO] Detected HEIC/HEIF file: {file_name}, converting to JPEG")
+			content = _convert_heic_to_jpeg(content)
+			ct = "image/jpeg"
+			# Update filename for logging purposes
+			file_name = file_name.rsplit('.', 1)[0] + '.jpg'
+		
 		return content, ct, file_name, uri
 	else:
 		# Local file
@@ -34,6 +72,15 @@ async def _read_file_bytes(uri: str):
 		content = p.read_bytes()
 		file_name = p.name
 		ct = mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+		
+		# Convert HEIC/HEIF to JPEG
+		if file_name.lower().endswith(('.heic', '.heif')):
+			print(f"[INFO] Detected HEIC/HEIF file: {file_name}, converting to JPEG")
+			content = _convert_heic_to_jpeg(content)
+			ct = "image/jpeg"
+			# Update filename for logging purposes
+			file_name = file_name.rsplit('.', 1)[0] + '.jpg'
+		
 		return content, ct, file_name, f"file://{str(p.resolve())}"
 
 
