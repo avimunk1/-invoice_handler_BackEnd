@@ -1,3 +1,5 @@
-# Package initializer for invoice_handler backend
+"""invoice_handler package."""
+
+from .config import settings  # re-export for convenience
 
 

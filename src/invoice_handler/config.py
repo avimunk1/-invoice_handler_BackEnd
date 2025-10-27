@@ -25,6 +25,9 @@ class Settings(BaseSettings):
 	# Finance
 	vat_rate: float = Field(default=0.18, alias="VAT_RATE")  # 18% default
 
+	# Database (asyncpg expects postgresql:// or postgres://)
+	database_url: str = Field(default="postgresql://dev:dev123@localhost:5432/invoice_handler_dev", alias="DATABASE_URL")
+
 	class Config:
 		env_file = ".env"
 		env_file_encoding = "utf-8"
