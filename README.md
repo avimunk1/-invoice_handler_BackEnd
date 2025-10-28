@@ -16,6 +16,7 @@ FastAPI backend for invoice/receipt processing using Azure Document Intelligence
 ### Prerequisites
 
 - Python 3.10 or higher
+- PostgreSQL database
 - Azure Document Intelligence account
 - (Optional) AWS S3 bucket for file storage
 
@@ -40,6 +41,9 @@ pip install -r requirements.txt
 Create a `.env` file with required credentials:
 
 ```env
+# Database (REQUIRED)
+DATABASE_URL=postgresql://dev:dev123@localhost:5432/invoice_handler_dev
+
 # Azure Document Intelligence (REQUIRED)
 AZURE_DI_ENDPOINT=https://your-instance.cognitiveservices.azure.com
 AZURE_DI_KEY=your-api-key-here
@@ -131,10 +135,11 @@ Returns presigned POST URL for S3 upload.
 - `main.py` - FastAPI application and routes
 - `pipeline.py` - Document processing pipeline
 - `azure_di.py` - Azure Document Intelligence client
-- `classifier.py` - Document type classification
 - `mapping.py` - Extract and normalize invoice fields
 - `discovery.py` - File system and S3 discovery
 - `models.py` - Pydantic data models
+- `models_db.py` - SQLAlchemy Core table definitions
+- `database.py` - Database connection management
 - `config.py` - Configuration management
 
 ## Rate Limiting
@@ -167,11 +172,36 @@ curl -X POST http://localhost:8000/process \
 3. Add mapping function in `mapping.py`
 4. Update `pipeline.py` to route to new analyzer
 
+## Database
+
+The backend uses **PostgreSQL** with **SQLAlchemy Core** (not ORM) for:
+- Storing processed invoices
+- Managing suppliers (auto-created from OCR)
+- Customer and user management
+- Expense account categorization
+
+See [SQLALCHEMY_MIGRATION.md](./SQLALCHEMY_MIGRATION.md) for details on the database architecture.
+
+### Database Migrations
+
+Migrations are managed with **Alembic**. See [ALEMBIC_USAGE.md](./ALEMBIC_USAGE.md) for commands.
+
+Quick reference:
+```bash
+# Apply migrations
+uv run alembic upgrade head
+
+# Create new migration
+uv run alembic revision --autogenerate -m "description"
+
+# Check current version
+uv run alembic current
+```
+
 ## Future Enhancements
 
-- [ ] Database integration for storing results
 - [ ] Webhook support for async processing
 - [ ] Custom document templates
 - [ ] OCR quality scoring
-- [ ] Duplicate detection
+- [ ] Duplicate detection using fuzzy matching
 

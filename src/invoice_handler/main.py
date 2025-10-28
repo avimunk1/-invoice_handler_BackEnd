@@ -7,11 +7,14 @@ import boto3
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from urllib.parse import unquote
-import asyncpg
 from pydantic import BaseModel, Field
 from datetime import date
 from .config import settings
 import json
+from sqlalchemy import select, insert, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from .database import get_engine, close_engine
+from .models_db import suppliers, invoices
 
 app = FastAPI(title="Invoice Handler", default_response_class=ORJSONResponse)
 
@@ -226,143 +229,150 @@ class BatchSaveResult(BaseModel):
 
 
 @app.on_event("startup")
-async def startup_db_pool():
-    dsn = settings.database_url.replace("+asyncpg", "")
-    app.state.dbpool = await asyncpg.create_pool(dsn=dsn, min_size=1, max_size=5)
+async def startup_db():
+    # Engine is created lazily via get_engine()
+    pass
 
 
 @app.on_event("shutdown")
-async def shutdown_db_pool():
-    pool = getattr(app.state, "dbpool", None)
-    if pool:
-        await pool.close()
+async def shutdown_db():
+    await close_engine()
 
 
-async def _ensure_supplier(conn: asyncpg.Connection, customer_id: int, supplier_id: Optional[int], supplier_name: Optional[str]) -> tuple[int, bool]:
+async def _ensure_supplier(conn, customer_id: int, supplier_id: Optional[int], supplier_name: Optional[str]) -> tuple[int, bool]:
+    """Ensure supplier exists, update if needed, or create new one."""
+    from sqlalchemy import func
+    
     if supplier_id is not None:
         # If supplier_id exists and name is provided, update the supplier name
         if supplier_name:
-            await conn.execute(
-                """
-                UPDATE suppliers 
-                SET name = $1, updated_at = NOW()
-                WHERE id = $2 AND customer_id = $3
-                """,
-                supplier_name,
-                supplier_id,
-                customer_id,
+            stmt = (
+                update(suppliers)
+                .where(suppliers.c.id == supplier_id, suppliers.c.customer_id == customer_id)
+                .values(name=supplier_name, updated_at=func.now())
             )
+            await conn.execute(stmt)
         return supplier_id, False
     
     if not supplier_name:
         raise ValueError("supplier_id or supplier_name is required")
     
     # Try match by OCR identification first, then by name
-    row = await conn.fetchrow(
-        """
-        SELECT id FROM suppliers 
-        WHERE customer_id = $1 
-          AND (ocr_supplier_identification = $2 OR name = $2)
-        """,
-        customer_id,
-        supplier_name,
+    stmt = select(suppliers.c.id).where(
+        suppliers.c.customer_id == customer_id,
+        (suppliers.c.ocr_supplier_identification == supplier_name) | (suppliers.c.name == supplier_name)
     )
+    result = await conn.execute(stmt)
+    row = result.first()
     if row:
-        return int(row["id"]), False
+        return int(row.id), False
     
     # Create new supplier
-    row = await conn.fetchrow(
-        """
-        INSERT INTO suppliers (customer_id, name, ocr_supplier_identification, active)
-        VALUES ($1, $2, $2, TRUE)
-        RETURNING id
-        """,
-        customer_id,
-        supplier_name,
+    stmt = (
+        insert(suppliers)
+        .values(
+            customer_id=customer_id,
+            name=supplier_name,
+            ocr_supplier_identification=supplier_name,
+            active=True
+        )
+        .returning(suppliers.c.id)
     )
-    return int(row["id"]), True  # type: ignore
+    result = await conn.execute(stmt)
+    row = result.first()
+    return int(row.id), True
 
 
 @app.post("/invoices/batch")
 async def save_invoices_batch(payload: BatchSaveRequest) -> Dict[str, Any]:
-    pool: asyncpg.Pool = app.state.dbpool
+    from sqlalchemy import func
+    
+    engine = get_engine()
     results: List[BatchSaveResult] = []
-    async with pool.acquire() as conn:
-        tr = conn.transaction()
-        await tr.start()
-        try:
-            for idx, inv in enumerate(payload.invoices):
-                try:
-                    sup_id, created = await _ensure_supplier(conn, payload.customer_id, inv.supplier_id, inv.supplier_name)
-                    # Ensure JSONB input is a JSON string
-                    metadata_json = json.dumps(inv.ocr_metadata) if inv.ocr_metadata is not None else None
-                    row = await conn.fetchrow(
-                        """
-                        INSERT INTO invoices (
-                            customer_id, supplier_id, invoice_number, invoice_date, due_date, currency,
-                            subtotal, vat_amount, total, expense_account_id, deductible_pct,
-                            doc_name, doc_full_path, document_type, status,
-                            ocr_confidence, ocr_language, ocr_metadata, needs_review, payment_terms
-                        ) VALUES (
-                            $1,$2,$3,$4,$5,$6,
-                            $7,$8,$9,$10,$11,
-                            $12,$13,$14,$15,
-                            $16,$17,$18,$19,$20
-                        )
-                        ON CONFLICT (customer_id, supplier_id, invoice_number)
-                        DO UPDATE SET
-                            invoice_date = EXCLUDED.invoice_date,
-                            due_date = EXCLUDED.due_date,
-                            currency = EXCLUDED.currency,
-                            subtotal = EXCLUDED.subtotal,
-                            vat_amount = EXCLUDED.vat_amount,
-                            total = EXCLUDED.total,
-                            expense_account_id = EXCLUDED.expense_account_id,
-                            deductible_pct = EXCLUDED.deductible_pct,
-                            doc_name = EXCLUDED.doc_name,
-                            doc_full_path = EXCLUDED.doc_full_path,
-                            document_type = EXCLUDED.document_type,
-                            status = EXCLUDED.status,
-                            ocr_confidence = EXCLUDED.ocr_confidence,
-                            ocr_language = EXCLUDED.ocr_language,
-                            ocr_metadata = EXCLUDED.ocr_metadata,
-                            needs_review = EXCLUDED.needs_review,
-                            payment_terms = EXCLUDED.payment_terms,
-                            updated_at = NOW()
-                        RETURNING id
-                        """,
-                        payload.customer_id,
-                        sup_id,
-                        inv.invoice_number,
-                        inv.invoice_date,
-                        inv.due_date,
-                        inv.currency,
-                        inv.subtotal,
-                        inv.vat_amount,
-                        inv.total,
-                        inv.expense_account_id,
-                        inv.deductible_pct,
-                        inv.doc_name,
-                        inv.doc_full_path,
-                        inv.document_type,
-                        inv.status,
-                        inv.ocr_confidence,
-                        inv.ocr_language,
-                        metadata_json,
-                        inv.needs_review,
-                        inv.payment_terms,
-                    )
-                    if row and row.get("id") is not None:
-                        results.append(BatchSaveResult(index=idx, invoice_number=inv.invoice_number, inserted_id=int(row["id"]), supplier_id=sup_id, supplier_created=created) )
-                    else:
-                        # This shouldn't happen with UPSERT, but handle it anyway
-                        results.append(BatchSaveResult(index=idx, invoice_number=inv.invoice_number, inserted_id=None, supplier_id=sup_id, supplier_created=created, error="No ID returned from database"))
-                except Exception as e:
-                    results.append(BatchSaveResult(index=idx, invoice_number=inv.invoice_number, supplier_id=sup_id if 'sup_id' in locals() else None, supplier_created=created if 'created' in locals() else None, error=f"{type(e).__name__}: {str(e)}"))
-            await tr.commit()
-        except Exception:
-            await tr.rollback()
-            raise
+    
+    async with engine.begin() as conn:  # Automatically commits or rolls back
+        for idx, inv in enumerate(payload.invoices):
+            try:
+                sup_id, created = await _ensure_supplier(conn, payload.customer_id, inv.supplier_id, inv.supplier_name)
+                
+                # Build upsert statement
+                stmt = pg_insert(invoices).values(
+                    customer_id=payload.customer_id,
+                    supplier_id=sup_id,
+                    invoice_number=inv.invoice_number,
+                    invoice_date=inv.invoice_date,
+                    due_date=inv.due_date,
+                    currency=inv.currency,
+                    subtotal=inv.subtotal,
+                    vat_amount=inv.vat_amount,
+                    total=inv.total,
+                    expense_account_id=inv.expense_account_id,
+                    deductible_pct=inv.deductible_pct,
+                    doc_name=inv.doc_name,
+                    doc_full_path=inv.doc_full_path,
+                    document_type=inv.document_type,
+                    status=inv.status,
+                    ocr_confidence=inv.ocr_confidence,
+                    ocr_language=inv.ocr_language,
+                    ocr_metadata=inv.ocr_metadata,  # SQLAlchemy handles JSONB serialization
+                    needs_review=inv.needs_review,
+                    payment_terms=inv.payment_terms,
+                )
+                
+                # On conflict, update all fields
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=['customer_id', 'supplier_id', 'invoice_number'],
+                    set_={
+                        'invoice_date': stmt.excluded.invoice_date,
+                        'due_date': stmt.excluded.due_date,
+                        'currency': stmt.excluded.currency,
+                        'subtotal': stmt.excluded.subtotal,
+                        'vat_amount': stmt.excluded.vat_amount,
+                        'total': stmt.excluded.total,
+                        'expense_account_id': stmt.excluded.expense_account_id,
+                        'deductible_pct': stmt.excluded.deductible_pct,
+                        'doc_name': stmt.excluded.doc_name,
+                        'doc_full_path': stmt.excluded.doc_full_path,
+                        'document_type': stmt.excluded.document_type,
+                        'status': stmt.excluded.status,
+                        'ocr_confidence': stmt.excluded.ocr_confidence,
+                        'ocr_language': stmt.excluded.ocr_language,
+                        'ocr_metadata': stmt.excluded.ocr_metadata,
+                        'needs_review': stmt.excluded.needs_review,
+                        'payment_terms': stmt.excluded.payment_terms,
+                        'updated_at': func.now(),
+                    }
+                ).returning(invoices.c.id)
+                
+                result = await conn.execute(stmt)
+                row = result.first()
+                
+                if row and row.id is not None:
+                    results.append(BatchSaveResult(
+                        index=idx,
+                        invoice_number=inv.invoice_number,
+                        inserted_id=int(row.id),
+                        supplier_id=sup_id,
+                        supplier_created=created
+                    ))
+                else:
+                    results.append(BatchSaveResult(
+                        index=idx,
+                        invoice_number=inv.invoice_number,
+                        inserted_id=None,
+                        supplier_id=sup_id,
+                        supplier_created=created,
+                        error="No ID returned from database"
+                    ))
+            except Exception as e:
+                results.append(BatchSaveResult(
+                    index=idx,
+                    invoice_number=inv.invoice_number,
+                    supplier_id=sup_id if 'sup_id' in locals() else None,
+                    supplier_created=created if 'created' in locals() else None,
+                    error=f"{type(e).__name__}: {str(e)}"
+                ))
+    
     return {"results": [r.dict() for r in results]}
 
 

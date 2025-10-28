@@ -18,7 +18,9 @@ dependencies = [
 	"openai>=2.6.0",
 	"pillow-heif==0.15.0",
 	"Pillow==10.3.0",
+	"sqlalchemy[asyncio]==2.0.36",
 	"asyncpg==0.29.0",
+	"alembic==1.13.3",
 ]
 
 [tool.uv]
