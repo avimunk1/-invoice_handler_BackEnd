@@ -13,6 +13,8 @@ class Settings(BaseSettings):
 
 	# AWS/S3
 	aws_region: Optional[str] = Field(default=None, alias="AWS_REGION")
+	aws_access_key_id: Optional[str] = Field(default=None, alias="AWS_ACCESS_KEY_ID")
+	aws_secret_access_key: Optional[str] = Field(default=None, alias="AWS_SECRET_ACCESS_KEY")
 	s3_bucket: Optional[str] = Field(default=None, alias="S3_BUCKET")
 	s3_region: Optional[str] = Field(default=None, alias="S3_REGION")
 

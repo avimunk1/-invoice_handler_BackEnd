@@ -48,11 +48,11 @@ DATABASE_URL=postgresql://dev:dev123@localhost:5432/invoice_handler_dev
 AZURE_DI_ENDPOINT=https://your-instance.cognitiveservices.azure.com
 AZURE_DI_KEY=your-api-key-here
 
-# AWS S3 (Optional - for web uploads)
+# AWS S3 (Optional - for web uploads and invoice storage)
 S3_BUCKET=invoice-uploads
 S3_REGION=us-east-1
-AWS_ACCESS_KEY_ID=your-access-key
-AWS_SECRET_ACCESS_KEY=your-secret-key
+AWS_ACCESS_KEY_ID=your-iam-access-key
+AWS_SECRET_ACCESS_KEY=your-iam-secret-key
 
 # Optional settings
 CONCURRENCY_LIMIT=4
@@ -171,6 +171,17 @@ curl -X POST http://localhost:8000/process \
 2. Create analyzer method in `azure_di.py`
 3. Add mapping function in `mapping.py`
 4. Update `pipeline.py` to route to new analyzer
+
+## S3 Storage
+
+The backend can store and retrieve invoices from **Amazon S3** using presigned URLs (no public access required).
+
+For detailed setup instructions, see **[S3_SETUP_GUIDE.md](./S3_SETUP_GUIDE.md)**.
+
+Quick setup:
+1. Create private S3 bucket with CORS enabled
+2. Create IAM user with S3-only permissions
+3. Add credentials to `.env` or Railway environment variables
 
 ## Database
 

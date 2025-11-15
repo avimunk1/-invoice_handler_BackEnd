@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- Add FK after both tables exist
 ALTER TABLE users
-  ADD CONSTRAINT IF NOT EXISTS users_customer_fk
+  ADD CONSTRAINT users_customer_fk
   FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL;
 
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
@@ -76,15 +76,15 @@ CREATE TABLE IF NOT EXISTS suppliers (
 );
 
 ALTER TABLE suppliers
-  ADD CONSTRAINT IF NOT EXISTS suppliers_customer_fk
+  ADD CONSTRAINT suppliers_customer_fk
   FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT;
 
 ALTER TABLE suppliers
-  ADD CONSTRAINT IF NOT EXISTS suppliers_expense_account_fk
+  ADD CONSTRAINT suppliers_expense_account_fk
   FOREIGN KEY (default_expense_account_id) REFERENCES expense_accounts(id);
 
 ALTER TABLE suppliers
-  ADD CONSTRAINT IF NOT EXISTS suppliers_updated_by_fk
+  ADD CONSTRAINT suppliers_updated_by_fk
   FOREIGN KEY (updated_by) REFERENCES users(id);
 
 CREATE INDEX IF NOT EXISTS idx_suppliers_customer ON suppliers(customer_id);
@@ -126,27 +126,27 @@ CREATE TABLE IF NOT EXISTS invoices (
 );
 
 ALTER TABLE invoices
-  ADD CONSTRAINT IF NOT EXISTS invoices_customer_fk
+  ADD CONSTRAINT invoices_customer_fk
   FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT;
 
 ALTER TABLE invoices
-  ADD CONSTRAINT IF NOT EXISTS invoices_supplier_fk
+  ADD CONSTRAINT invoices_supplier_fk
   FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE RESTRICT;
 
 ALTER TABLE invoices
-  ADD CONSTRAINT IF NOT EXISTS invoices_expense_account_fk
+  ADD CONSTRAINT invoices_expense_account_fk
   FOREIGN KEY (expense_account_id) REFERENCES expense_accounts(id);
 
 ALTER TABLE invoices
-  ADD CONSTRAINT IF NOT EXISTS invoices_duplicate_fk
+  ADD CONSTRAINT invoices_duplicate_fk
   FOREIGN KEY (duplicate_of) REFERENCES invoices(id);
 
 ALTER TABLE invoices
-  ADD CONSTRAINT IF NOT EXISTS invoices_created_by_fk
+  ADD CONSTRAINT invoices_created_by_fk
   FOREIGN KEY (created_by) REFERENCES users(id);
 
 ALTER TABLE invoices
-  ADD CONSTRAINT IF NOT EXISTS invoices_updated_by_fk
+  ADD CONSTRAINT invoices_updated_by_fk
   FOREIGN KEY (updated_by) REFERENCES users(id);
 
 CREATE INDEX IF NOT EXISTS idx_invoices_customer_date ON invoices(customer_id, invoice_date);

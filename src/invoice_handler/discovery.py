@@ -30,7 +30,8 @@ def discover_s3(uri: str, recursive: bool) -> List[str]:
 	assert m
 	bucket = m.group(1)
 	prefix = m.group(2)
-	s3 = boto3.client("s3")
+	from .s3_client import get_s3_client
+	s3 = get_s3_client()
 	kwargs = {"Bucket": bucket, "Prefix": prefix}
 	objects: List[str] = []
 	while True:

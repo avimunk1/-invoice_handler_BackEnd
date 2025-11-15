@@ -6,7 +6,6 @@ from .discovery import discover
 from .mapping import map_invoice, validate_invoice_data
 from .llm_processor import OpenAIClient
 import mimetypes
-import boto3
 import asyncio
 from datetime import datetime
 from io import BytesIO
@@ -60,7 +59,8 @@ async def _read_file_bytes(uri: str):
 		if not m:
 			raise ValueError(f"Invalid S3 URI: {uri}")
 		bucket, key = m.group(1), m.group(2)
-		s3 = boto3.client("s3")
+		from .s3_client import get_s3_client
+		s3 = get_s3_client()
 		obj = s3.get_object(Bucket=bucket, Key=key)
 		content = obj["Body"].read()
 		file_name = Path(key).name
