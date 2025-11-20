@@ -19,9 +19,17 @@ from .models_db import suppliers, invoices, customers
 app = FastAPI(title="Invoice Handler", default_response_class=ORJSONResponse)
 
 # CORS middleware for frontend
+# Allow local development + production domains
+allowed_origins = [
+	"http://localhost:5173",
+	"http://localhost:3000",
+	"https://*.vercel.app",  # Vercel preview and production
+	"https://invoice-handler.vercel.app",  # Your production domain (update this)
+]
+
 app.add_middleware(
 	CORSMiddleware,
-	allow_origins=["http://localhost:5173", "http://localhost:3000"],  # Vite and common dev ports
+	allow_origin_regex=r"https://.*\.vercel\.app|http://localhost:\d+",
 	allow_credentials=True,
 	allow_methods=["*"],
 	allow_headers=["*"],
