@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse, FileResponse
 from .models import ProcessRequest, ProcessResponse
@@ -69,31 +69,38 @@ async def process_with_llm(req: ProcessRequest):
 	)
 
 
-@app.post("/upload/presigned-url")
-async def get_presigned_url(filename: str) -> Dict[str, Any]:
-	"""Generate a presigned POST URL for S3 upload"""
-	if not settings.s3_bucket:
-		return {"error": "S3 bucket not configured"}
-	
-	s3_client = get_s3_client()
-	
-	# Generate unique key with timestamp
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)) -> Dict[str, Any]:
+	"""Upload a file directly to Railway Volume storage"""
 	from datetime import datetime
+	import shutil
+	
+	# Create uploads directory if it doesn't exist
+	upload_dir = Path("/app/data/uploads")
+	upload_dir.mkdir(parents=True, exist_ok=True)
+	
+	# Generate unique filename with timestamp
 	timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-	key = f"uploads/{timestamp}_{filename}"
+	safe_filename = file.filename.replace(" ", "_")
+	unique_filename = f"{timestamp}_{safe_filename}"
+	file_path = upload_dir / unique_filename
 	
-	# Generate presigned POST
-	presigned_post = s3_client.generate_presigned_post(
-		Bucket=settings.s3_bucket,
-		Key=key,
-		ExpiresIn=3600  # 1 hour
-	)
-	
-	return {
-		"url": presigned_post["url"],
-		"fields": presigned_post["fields"],
-		"s3_path": f"s3://{settings.s3_bucket}/{key}"
-	}
+	# Save file to disk
+	try:
+		with file_path.open("wb") as buffer:
+			shutil.copyfileobj(file.file, buffer)
+		
+		return {
+			"success": True,
+			"filename": unique_filename,
+			"path": f"/data/uploads/{unique_filename}",
+			"original_filename": file.filename
+		}
+	except Exception as e:
+		return {
+			"success": False,
+			"error": str(e)
+		}
 
 
 @app.get("/file/view", response_model=None)
