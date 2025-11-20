@@ -23,8 +23,7 @@ app = FastAPI(title="Invoice Handler", default_response_class=ORJSONResponse)
 allowed_origins = [
 	"http://localhost:5173",
 	"http://localhost:3000",
-	"https://*.vercel.app",  # Vercel preview and production
-	"https://invoice-handler.vercel.app",  # Your production domain (update this)
+	"https://invoice-handler-frontend-2deslnnp5-avimunk1s-projects.vercel.app",  # Vercel production
 ]
 
 app.add_middleware(
