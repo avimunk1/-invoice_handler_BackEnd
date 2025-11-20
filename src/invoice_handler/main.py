@@ -70,13 +70,13 @@ async def process_with_llm(req: ProcessRequest):
 
 
 @app.post("/upload")
-async def upload_file(file: UploadFile = File(...), auto_process: bool = True) -> Dict[str, Any]:
-	"""Upload a file directly to Railway Volume storage and optionally process it"""
+async def upload_file(file: UploadFile = File(...)) -> Dict[str, Any]:
+	"""Upload a file to configured upload directory"""
 	from datetime import datetime
 	import shutil
 	
-	# Create uploads directory if it doesn't exist
-	upload_dir = Path("/app/data/uploads")
+	# Use configured upload directory
+	upload_dir = Path(settings.upload_dir)
 	upload_dir.mkdir(parents=True, exist_ok=True)
 	
 	# Generate unique filename with timestamp
@@ -90,37 +90,13 @@ async def upload_file(file: UploadFile = File(...), auto_process: bool = True) -
 		with file_path.open("wb") as buffer:
 			shutil.copyfileobj(file.file, buffer)
 		
-		result = {
+		return {
 			"success": True,
 			"filename": unique_filename,
-			"path": f"/data/uploads/{unique_filename}",
+			"path": str(file_path),
+			"upload_dir": str(upload_dir),
 			"original_filename": file.filename
 		}
-		
-		# Automatically process the file if requested
-		if auto_process:
-			try:
-				# Process the single uploaded file
-				processing_results, total_files, files_handled = await process_path(
-					path=f"/data/uploads/{unique_filename}",
-					recursive=False,
-					language_detection=True,
-					starting_point=None
-				)
-				
-				result["processing"] = {
-					"success": True,
-					"results": processing_results,
-					"total_files": total_files,
-					"files_handled": files_handled
-				}
-			except Exception as e:
-				result["processing"] = {
-					"success": False,
-					"error": str(e)
-				}
-		
-		return result
 	except Exception as e:
 		return {
 			"success": False,

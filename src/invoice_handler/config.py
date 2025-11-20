@@ -30,6 +30,9 @@ class Settings(BaseSettings):
 	# Database (asyncpg expects postgresql:// or postgres://)
 	database_url: str = Field(default="postgresql://dev:dev123@localhost:5432/invoice_handler_dev", alias="DATABASE_URL")
 
+	# File storage
+	upload_dir: str = Field(default="files/input", alias="UPLOAD_DIR")
+
 	class Config:
 		env_file = ".env"
 		env_file_encoding = "utf-8"
