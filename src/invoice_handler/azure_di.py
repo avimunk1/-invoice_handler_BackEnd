@@ -6,7 +6,11 @@ from .config import settings
 
 class AzureDIClient:
 	def __init__(self, endpoint: Optional[str] = None, api_key: Optional[str] = None, timeout_seconds: Optional[int] = None):
-		self.endpoint = (endpoint or settings.azure_di_endpoint).rstrip("/")
+		raw_endpoint = (endpoint or settings.azure_di_endpoint).rstrip("/")
+		# Ensure endpoint has https:// protocol
+		if not raw_endpoint.startswith(("http://", "https://")):
+			raw_endpoint = f"https://{raw_endpoint}"
+		self.endpoint = raw_endpoint
 		self.api_key = api_key or settings.azure_di_key
 		self.timeout = timeout_seconds or settings.timeout_seconds
 
