@@ -661,10 +661,10 @@ async def process_path_with_llm(path: str, recursive: bool, language_detection: 
 				field_confidence=field_confidences if field_confidences else None,  # Add field confidence from Azure
 			)
 			
-		print(f"[DEBUG-LLM] Successfully processed {file_name} with LLM: type={invoice_data.document_type}, total={invoice_data.total}, bboxes={len(bounding_boxes)}")
-		results.append(invoice_data)
+			print(f"[DEBUG-LLM] Successfully processed {file_name} with LLM: type={invoice_data.document_type}, total={invoice_data.total}, bboxes={len(bounding_boxes)}")
+			results.append(invoice_data)
 		
-	except Exception as e:
+		except Exception as e:
 			print(f"[ERROR-LLM] Failed to process {uri}: {type(e).__name__}: {str(e)}")
 			import traceback
 			traceback.print_exc()
