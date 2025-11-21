@@ -271,8 +271,8 @@ async def process_path(path: str, recursive: bool, language_detection: bool, sta
 				mapped.document_type = "other"
 				print(f"[DEBUG] No invoice data found for {file_name}, marked as 'other'")
 			
-		validated = validate_invoice_data(mapped)
-		results.append(validated)
+			validated = validate_invoice_data(mapped)
+			results.append(validated)
 			
 		except Exception as e:
 			print(f"[ERROR] Failed to process {uri}: {type(e).__name__}: {str(e)}")
