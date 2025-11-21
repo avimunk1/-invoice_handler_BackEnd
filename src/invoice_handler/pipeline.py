@@ -24,19 +24,27 @@ def detect_language(text: str) -> str:
 	return "en"
 
 
-def _move_to_processed(file_path: str) -> None:
-	"""Move a processed file to the 'processed' subdirectory to avoid reprocessing."""
+def _move_to_processed(file_path: str) -> str:
+	"""
+	Move a processed file to the 'processed' subdirectory to avoid reprocessing.
+	
+	Returns the new file path (with file:// prefix if it was present), or the original path if move failed.
+	"""
 	try:
+		had_prefix = False
+		original_path = file_path
+		
 		# Only move local files, not S3 files
 		if file_path.startswith("file://"):
 			file_path = file_path[7:]  # Remove file:// prefix
+			had_prefix = True
 		elif file_path.startswith("s3://"):
 			# Don't move S3 files
-			return
+			return original_path
 		
 		source = Path(file_path)
 		if not source.exists():
-			return
+			return original_path
 		
 		# Create processed directory next to the input directory
 		processed_dir = source.parent / "processed"
@@ -56,8 +64,16 @@ def _move_to_processed(file_path: str) -> None:
 		
 		shutil.move(str(source), str(destination))
 		print(f"[INFO] Moved processed file: {source.name} → processed/{destination.name}")
+		
+		# Return new path with file:// prefix if original had it
+		new_path = str(destination)
+		if had_prefix:
+			new_path = f"file://{new_path}"
+		return new_path
+		
 	except Exception as e:
 		print(f"[WARN] Failed to move file {file_path} to processed: {e}")
+		return original_path
 
 
 def _convert_heic_to_jpeg(heic_content: bytes) -> bytes:
@@ -255,10 +271,17 @@ async def process_path(path: str, recursive: bool, language_detection: bool, sta
 				mapped.document_type = "other"
 				print(f"[DEBUG] No invoice data found for {file_name}, marked as 'other'")
 			
-			results.append(validate_invoice_data(mapped))
+			validated = validate_invoice_data(mapped)
 			
-			# Move successfully processed file to 'processed' directory
-			_move_to_processed(uri)
+			# Move successfully processed file to 'processed' directory and update path
+			new_uri = _move_to_processed(uri)
+			if new_uri != uri:
+				validated.source_path = new_uri
+				# Also update file_url to point to new location
+				from urllib.parse import quote
+				validated.file_url = f"/file/view?path={quote(new_uri)}"
+			
+			results.append(validated)
 			
 		except Exception as e:
 			print(f"[ERROR] Failed to process {uri}: {type(e).__name__}: {str(e)}")
@@ -457,10 +480,16 @@ async def process_path_with_llm(path: str, recursive: bool, language_detection: 
 			)
 			
 			print(f"[DEBUG-LLM] Successfully processed {file_name} with LLM: type={invoice_data.document_type}, total={invoice_data.total}, bboxes={len(bounding_boxes)}")
-			results.append(invoice_data)
 			
-			# Move successfully processed file to 'processed' directory
-			_move_to_processed(uri)
+			# Move successfully processed file to 'processed' directory and update path
+			new_uri = _move_to_processed(uri)
+			if new_uri != uri:
+				invoice_data.source_path = new_uri
+				# Also update file_url to point to new location
+				from urllib.parse import quote
+				invoice_data.file_url = f"/file/view?path={quote(new_uri)}"
+			
+			results.append(invoice_data)
 			
 		except Exception as e:
 			print(f"[ERROR-LLM] Failed to process {uri}: {type(e).__name__}: {str(e)}")

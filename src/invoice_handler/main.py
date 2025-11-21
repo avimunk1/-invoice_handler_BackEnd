@@ -159,8 +159,21 @@ async def view_file(path: str):
 		local_path = decoded_path[7:]  # Remove file://
 		file_path = Path(local_path)
 		
+		# If file not found, check if it was moved to 'processed' directory
 		if not file_path.exists():
-			return {"error": "File not found"}
+			# Try to find in processed directory
+			if 'input' in file_path.parts:
+				# Replace 'input' with 'processed' in the path
+				parts = list(file_path.parts)
+				input_idx = parts.index('input')
+				parts[input_idx] = 'processed'
+				processed_path = Path(*parts)
+				if processed_path.exists():
+					file_path = processed_path
+				else:
+					return {"error": "File not found"}
+			else:
+				return {"error": "File not found"}
 		
 		# Check if HEIC/HEIF - need to convert before serving
 		if file_path.suffix.lower() in ['.heic', '.heif']:
