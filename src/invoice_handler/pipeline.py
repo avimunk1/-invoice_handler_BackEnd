@@ -10,6 +10,7 @@ import asyncio
 from datetime import datetime
 from io import BytesIO
 import re
+import shutil
 
 
 # Hebrew character detection for language identification
@@ -21,6 +22,42 @@ def detect_language(text: str) -> str:
 	if HEBREW_CHARS.search(text or ""):
 		return "he"
 	return "en"
+
+
+def _move_to_processed(file_path: str) -> None:
+	"""Move a processed file to the 'processed' subdirectory to avoid reprocessing."""
+	try:
+		# Only move local files, not S3 files
+		if file_path.startswith("file://"):
+			file_path = file_path[7:]  # Remove file:// prefix
+		elif file_path.startswith("s3://"):
+			# Don't move S3 files
+			return
+		
+		source = Path(file_path)
+		if not source.exists():
+			return
+		
+		# Create processed directory next to the input directory
+		processed_dir = source.parent / "processed"
+		processed_dir.mkdir(parents=True, exist_ok=True)
+		
+		# Move file to processed directory
+		destination = processed_dir / source.name
+		
+		# If destination exists, add a counter to make it unique
+		if destination.exists():
+			counter = 1
+			stem = source.stem
+			suffix = source.suffix
+			while destination.exists():
+				destination = processed_dir / f"{stem}_{counter}{suffix}"
+				counter += 1
+		
+		shutil.move(str(source), str(destination))
+		print(f"[INFO] Moved processed file: {source.name} → processed/{destination.name}")
+	except Exception as e:
+		print(f"[WARN] Failed to move file {file_path} to processed: {e}")
 
 
 def _convert_heic_to_jpeg(heic_content: bytes) -> bytes:
@@ -219,6 +256,10 @@ async def process_path(path: str, recursive: bool, language_detection: bool, sta
 				print(f"[DEBUG] No invoice data found for {file_name}, marked as 'other'")
 			
 			results.append(validate_invoice_data(mapped))
+			
+			# Move successfully processed file to 'processed' directory
+			_move_to_processed(uri)
+			
 		except Exception as e:
 			print(f"[ERROR] Failed to process {uri}: {type(e).__name__}: {str(e)}")
 			import traceback
@@ -417,6 +458,9 @@ async def process_path_with_llm(path: str, recursive: bool, language_detection: 
 			
 			print(f"[DEBUG-LLM] Successfully processed {file_name} with LLM: type={invoice_data.document_type}, total={invoice_data.total}, bboxes={len(bounding_boxes)}")
 			results.append(invoice_data)
+			
+			# Move successfully processed file to 'processed' directory
+			_move_to_processed(uri)
 			
 		except Exception as e:
 			print(f"[ERROR-LLM] Failed to process {uri}: {type(e).__name__}: {str(e)}")
