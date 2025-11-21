@@ -104,6 +104,72 @@ async def upload_file(file: UploadFile = File(...)) -> Dict[str, Any]:
 		}
 
 
+@app.post("/upload-and-process", response_model=ProcessResponse)
+async def upload_and_process(files: List[UploadFile] = File(...)) -> ProcessResponse:
+	"""
+	Upload multiple files and process them in one atomic operation.
+	1. Clear input directory
+	2. Save uploaded files
+	3. Process with LLM
+	4. Return results
+	"""
+	from datetime import datetime
+	import shutil
+	import glob
+	
+	# Use configured upload directory
+	upload_dir = Path(settings.upload_dir)
+	upload_dir.mkdir(parents=True, exist_ok=True)
+	
+	try:
+		# Step 1: Save all uploaded files to input directory
+		# NOTE: We do NOT clean the directory here because:
+		# - Existing files may be from previous uploads that haven't been saved yet
+		# - Files only move to 'processed/' after being saved to the database
+		# - The user may be adding more files to an existing batch
+		saved_files = []
+		for file in files:
+			timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")  # Include microseconds for uniqueness
+			safe_filename = file.filename.replace(" ", "_")
+			unique_filename = f"{timestamp}_{safe_filename}"
+			file_path = upload_dir / unique_filename
+			
+			with file_path.open("wb") as buffer:
+				shutil.copyfileobj(file.file, buffer)
+			
+			saved_files.append(str(file_path))
+			print(f"[INFO] Saved file: {unique_filename}")
+		
+		# Step 2: Process only the files we just uploaded
+		from .pipeline import process_specific_files_with_llm
+		results, total_files, files_handled = await process_specific_files_with_llm(
+			file_paths=saved_files,
+			language_detection=True
+		)
+		
+		print(f"[INFO] Processed {files_handled} of {total_files} files successfully")
+		
+		return ProcessResponse(
+			results=results,
+			errors=[],
+			total_files=total_files,
+			files_handled=files_handled,
+			vat_rate=settings.vat_rate
+		)
+		
+	except Exception as e:
+		print(f"[ERROR] Upload and process failed: {str(e)}")
+		import traceback
+		traceback.print_exc()
+		return ProcessResponse(
+			results=[],
+			errors=[str(e)],
+			total_files=0,
+			files_handled=0,
+			vat_rate=settings.vat_rate
+		)
+
+
 @app.get("/file/view", response_model=None)
 async def view_file(path: str):
 	"""Get a viewable URL for a file (S3 presigned URL or local file). Auto-converts HEIC to JPEG."""
@@ -246,6 +312,7 @@ class BatchSaveResult(BaseModel):
     inserted_id: Optional[int] = None
     supplier_id: Optional[int] = None
     supplier_created: Optional[bool] = None
+    is_update: bool = False
     conflict: bool = False
     error: Optional[str] = None
 
@@ -308,16 +375,56 @@ async def _ensure_supplier(conn, customer_id: int, supplier_id: Optional[int], s
 @app.post("/invoices/batch")
 async def save_invoices_batch(payload: BatchSaveRequest) -> Dict[str, Any]:
     from sqlalchemy import func
+    from .pipeline import _move_to_processed
     
     engine = get_engine()
     results: List[BatchSaveResult] = []
+    
+    # Prepare processed directory
+    input_dir = Path(settings.upload_dir)
+    processed_dir = input_dir.parent / "processed"
+    processed_dir.mkdir(parents=True, exist_ok=True)
     
     async with engine.begin() as conn:  # Automatically commits or rolls back
         for idx, inv in enumerate(payload.invoices):
             try:
                 sup_id, created = await _ensure_supplier(conn, payload.customer_id, inv.supplier_id, inv.supplier_name)
                 
-                # Build upsert statement
+                # Check if invoice already exists (to determine INSERT vs UPDATE)
+                check_stmt = select(invoices.c.id).where(
+                    invoices.c.customer_id == payload.customer_id,
+                    invoices.c.supplier_id == sup_id,
+                    invoices.c.invoice_number == inv.invoice_number
+                )
+                check_result = await conn.execute(check_stmt)
+                existing_row = check_result.first()
+                is_update = existing_row is not None
+                
+                # Handle file moving if doc_full_path is provided
+                final_doc_path = inv.doc_full_path
+                if inv.doc_full_path:
+                    # Extract file path from various formats
+                    file_path_str = inv.doc_full_path
+                    if file_path_str.startswith("file://"):
+                        file_path_str = file_path_str[7:]
+                    
+                    file_path = Path(file_path_str)
+                    
+                    # Check if file is in input directory and needs to be moved
+                    if file_path.exists() and 'input' in file_path.parts:
+                        # Move file to processed directory
+                        new_path = _move_to_processed(inv.doc_full_path)
+                        if new_path != inv.doc_full_path:
+                            final_doc_path = new_path
+                            print(f"[INFO] Moved file to processed: {file_path.name}")
+                    elif 'processed' in file_path.parts:
+                        # File already in processed, keep as is
+                        final_doc_path = inv.doc_full_path
+                    else:
+                        # File path doesn't exist or not in expected location
+                        print(f"[WARN] File not found or not in expected location: {file_path_str}")
+                
+                # Build upsert statement with updated path
                 stmt = pg_insert(invoices).values(
                     customer_id=payload.customer_id,
                     supplier_id=sup_id,
@@ -331,12 +438,12 @@ async def save_invoices_batch(payload: BatchSaveRequest) -> Dict[str, Any]:
                     expense_account_id=inv.expense_account_id,
                     deductible_pct=inv.deductible_pct,
                     doc_name=inv.doc_name,
-                    doc_full_path=inv.doc_full_path,
+                    doc_full_path=final_doc_path,  # Use updated path
                     document_type=inv.document_type,
                     status=inv.status,
                     ocr_confidence=inv.ocr_confidence,
                     ocr_language=inv.ocr_language,
-                    ocr_metadata=inv.ocr_metadata,  # SQLAlchemy handles JSONB serialization
+                    ocr_metadata=inv.ocr_metadata,
                     needs_review=inv.needs_review,
                     payment_terms=inv.payment_terms,
                 )
@@ -375,7 +482,8 @@ async def save_invoices_batch(payload: BatchSaveRequest) -> Dict[str, Any]:
                         invoice_number=inv.invoice_number,
                         inserted_id=int(row.id),
                         supplier_id=sup_id,
-                        supplier_created=created
+                        supplier_created=created,
+                        is_update=is_update
                     ))
                 else:
                     results.append(BatchSaveResult(
@@ -384,6 +492,7 @@ async def save_invoices_batch(payload: BatchSaveRequest) -> Dict[str, Any]:
                         inserted_id=None,
                         supplier_id=sup_id,
                         supplier_created=created,
+                        is_update=is_update,
                         error="No ID returned from database"
                     ))
             except Exception as e:
@@ -392,10 +501,96 @@ async def save_invoices_batch(payload: BatchSaveRequest) -> Dict[str, Any]:
                     invoice_number=inv.invoice_number,
                     supplier_id=sup_id if 'sup_id' in locals() else None,
                     supplier_created=created if 'created' in locals() else None,
+                    is_update=False,
                     error=f"{type(e).__name__}: {str(e)}"
                 ))
     
     return {"results": [r.dict() for r in results]}
+
+
+class ConflictCheckRequest(BaseModel):
+    customer_id: int
+    invoices: List[SaveInvoice]
+
+
+class ConflictDetail(BaseModel):
+    invoice_number: str
+    type: str  # "db_constraint" or "filename_duplicate"
+    message: str
+
+
+class ConflictCheckResponse(BaseModel):
+    has_conflicts: bool
+    conflicts: List[ConflictDetail]
+
+
+@app.post("/invoices/check-conflicts", response_model=ConflictCheckResponse)
+async def check_invoice_conflicts(payload: ConflictCheckRequest) -> ConflictCheckResponse:
+    """
+    Check for conflicts before saving invoices.
+    Checks:
+    1. DB unique constraint (customer_id, supplier_id, invoice_number)
+    2. Filename duplicates in processed folder
+    """
+    engine = get_engine()
+    conflicts: List[ConflictDetail] = []
+    
+    # Prepare processed directory path
+    input_dir = Path(settings.upload_dir)
+    processed_dir = input_dir.parent / "processed"
+    
+    async with engine.connect() as conn:
+        for inv in payload.invoices:
+            try:
+                # Get supplier_id
+                sup_id = inv.supplier_id
+                if not sup_id and inv.supplier_name:
+                    # Try to find existing supplier
+                    stmt = select(suppliers.c.id).where(
+                        suppliers.c.customer_id == payload.customer_id,
+                        (suppliers.c.ocr_supplier_identification == inv.supplier_name) | (suppliers.c.name == inv.supplier_name)
+                    )
+                    result = await conn.execute(stmt)
+                    row = result.first()
+                    if row:
+                        sup_id = int(row.id)
+                
+                if not sup_id:
+                    # Will create new supplier, no conflict check needed for DB
+                    continue
+                
+                # Check DB constraint (only for invoices that will be INSERTs, not UPDATEs)
+                check_stmt = select(invoices.c.id).where(
+                    invoices.c.customer_id == payload.customer_id,
+                    invoices.c.supplier_id == sup_id,
+                    invoices.c.invoice_number == inv.invoice_number
+                )
+                check_result = await conn.execute(check_stmt)
+                existing_row = check_result.first()
+                
+                # If it exists, it's an UPDATE, not a conflict
+                if not existing_row:
+                    # Check for filename conflicts in processed folder
+                    if inv.doc_name and processed_dir.exists():
+                        processed_files = list(processed_dir.glob("*"))
+                        for processed_file in processed_files:
+                            if processed_file.name == inv.doc_name or processed_file.name.endswith(f"_{inv.doc_name}"):
+                                conflicts.append(ConflictDetail(
+                                    invoice_number=inv.invoice_number,
+                                    type="filename_duplicate",
+                                    message=f"File '{inv.doc_name}' already exists in processed folder"
+                                ))
+                                break
+                
+            except Exception as e:
+                print(f"[WARN] Error checking conflicts for invoice {inv.invoice_number}: {str(e)}")
+                # Continue checking other invoices
+                continue
+    
+    return ConflictCheckResponse(
+        has_conflicts=len(conflicts) > 0,
+        conflicts=conflicts
+    )
 
 
 @app.get("/customers")
