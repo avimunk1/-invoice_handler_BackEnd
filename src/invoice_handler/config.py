@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings
-from pydantic import Field
-from typing import Optional
+from pydantic import Field, computed_field
+from typing import Optional, Literal
 
 
 class Settings(BaseSettings):
@@ -32,6 +32,20 @@ class Settings(BaseSettings):
 
 	# File storage
 	upload_dir: str = Field(default="files/input", alias="UPLOAD_DIR")
+
+	# Runtime environment
+	runtime_env: Literal["localhost", "railway"] = Field(default="localhost", alias="RUNTIME_ENV")
+
+	@computed_field
+	@property
+	def api_base_url(self) -> str:
+		"""Derive API base URL from runtime environment."""
+		if self.runtime_env == "localhost":
+			return "http://localhost:8000"
+		elif self.runtime_env == "railway":
+			return "https://invoicehandlerbackend-production.up.railway.app"
+		else:
+			raise ValueError(f"Unknown runtime_env: {self.runtime_env}")
 
 	class Config:
 		env_file = ".env"
