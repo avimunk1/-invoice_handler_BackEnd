@@ -171,7 +171,7 @@ async def process_specific_files(file_paths: List[str], language_detection: bool
 			
 			# Generate file_url for viewing
 			from urllib.parse import quote
-			file_view_url = f"/file/view?path={quote(source_uri)}"
+			file_view_url = f"/file/view?filename={quote(file_name)}"
 			
 			# Map the invoice data
 			mapped = map_invoice(parsed, file_name=file_name, source_path=source_uri, language=lang, file_url=file_view_url)
@@ -255,7 +255,7 @@ async def process_path(path: str, recursive: bool, language_detection: bool, sta
 			
 			# Generate file_url for viewing
 			from urllib.parse import quote
-			file_view_url = f"/file/view?path={quote(source_uri)}"
+			file_view_url = f"/file/view?filename={quote(file_name)}"
 			
 			# Map the invoice data
 			mapped = map_invoice(parsed, file_name=file_name, source_path=source_uri, language=lang, file_url=file_view_url)
@@ -423,7 +423,7 @@ async def process_specific_files_with_llm(file_paths: List[str], language_detect
 			
 			# Step 3: Parse LLM response into InvoiceData
 			from urllib.parse import quote
-			file_view_url = f"/file/view?path={quote(source_uri)}"
+			file_view_url = f"/file/view?filename={quote(file_name)}"
 			
 			# Convert line items
 			line_items = None
@@ -625,7 +625,7 @@ async def process_path_with_llm(path: str, recursive: bool, language_detection: 
 			
 			# Step 3: Parse LLM response into InvoiceData
 			from urllib.parse import quote
-			file_view_url = f"/file/view?path={quote(source_uri)}"
+			file_view_url = f"/file/view?filename={quote(file_name)}"
 			
 			# Convert line items
 			line_items = None

@@ -171,9 +171,31 @@ async def upload_and_process(files: List[UploadFile] = File(...)) -> ProcessResp
 
 
 @app.get("/file/view", response_model=None)
-async def view_file(path: str):
+async def view_file(path: str = None, filename: str = None):
 	"""Get a viewable URL for a file (S3 presigned URL or local file). Auto-converts HEIC to JPEG."""
-	decoded_path = unquote(path)
+	# Support both old 'path' parameter and new 'filename' parameter
+	if filename:
+		# New way: construct path from filename using configured upload_dir
+		from .config import settings
+		from pathlib import Path
+		
+		# Try input directory first
+		input_path = Path(settings.upload_dir) / filename
+		# Also check processed directory
+		processed_dir = Path(settings.upload_dir).parent / "processed"
+		processed_path = processed_dir / filename
+		
+		if input_path.exists():
+			decoded_path = f"file://{input_path.absolute()}"
+		elif processed_path.exists():
+			decoded_path = f"file://{processed_path.absolute()}"
+		else:
+			return {"error": f"File not found: {filename}"}
+	elif path:
+		# Old way: use provided path
+		decoded_path = unquote(path)
+	else:
+		return {"error": "Either 'path' or 'filename' parameter is required"}
 	
 	if decoded_path.startswith("s3://"):
 		# Generate presigned GET URL for S3
